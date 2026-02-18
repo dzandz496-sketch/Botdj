@@ -1,28 +1,56 @@
 // =======================================================
-// 🛠️ إعدادات الشبكة الضرورية لـ Render
+// 🛠️ إصلاحات الشبكة الأساسية (Render/Fly Fix)
 // =======================================================
 const dns = require('dns');
-try { dns.setDefaultResultOrder('ipv4first'); } catch(e) {} // حل مشكلة اتصال فيسبوك
+try { dns.setDefaultResultOrder('ipv4first'); } catch(e) {}
 
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
 const crypto = require('crypto');
 const fs = require('fs');
-const https = require('https'); // ضروري للاتصال الآمن
+const https = require('https');
 
 // =======================================================
 // ⚙️ إعدادات البوت
 // =======================================================
 const PAGE_ACCESS_TOKEN = "EAARATjo0m58BQvA95yyZBpgE3ZBZCxWd8qKTBNdH5E7fU9QR7QojNBiSprpHiA0EsROSqUZCkslDXWg1BegWZCM97TyZAWvVrix7IEl0Y2JN6P50eUu7tuvRzYjhZAujGxq49PyGdeqTTMjLIme4FxUZAMFAyoJze6WHiUxfjZBOJWKGLZBiB5eE4NOLRZCfy2Q5zBsPiRoRRfDiwZDZD"; 
 const VERIFY_TOKEN = "djezzy_bot_secure_pass"; 
-const PORT = process.env.PORT || 3000; // Render سيحدد المنفذ تلقائياً
+const PORT = process.env.PORT || 3000;
 
-// 🔴 هام جداً: ضع رابط Cloudflare Worker هنا لكسر الحظر الجغرافي
-const DJEZZY_PROXY_URL = "https://reverseproxy.dzandz496.workers.dev"; 
+// =======================================================
+// 🎭 إعدادات التمويه (خداع سيرفر جيزي)
+// =======================================================
+// نقوم بتوليد IP جزائري عشوائي (نطاق جيزي/اتصالات الجزائر)
+function getFakeAlgerianIP() {
+    return `105.100.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`;
+}
 
-// وكيل اتصال لضمان استقرار الشبكة في Render
-const renderAgent = new https.Agent({ family: 4, keepAlive: true });
+const fakeIP = getFakeAlgerianIP();
+
+// رؤوس مخادعة لتبدو وكأن الطلب من هاتف في الجزائر
+const SPOOF_HEADERS = {
+    'User-Agent': 'Djezzy/2.7.0 (Android; 11; Mobile)', // إظهار أننا تطبيق موبايل
+    'Accept': 'application/json',
+    'X-Forwarded-For': fakeIP,       // خدعة 1: أنا من هذا الآي بي
+    'Client-IP': fakeIP,             // خدعة 2
+    'X-Real-IP': fakeIP,             // خدعة 3
+    'CF-Connecting-IP': fakeIP,      // خدعة 4 (في حال كانوا يستخدمون كلاود فلير)
+    'True-Client-IP': fakeIP
+};
+
+// =======================================================
+// 🛠️ وكلاء الاتصال (Agents)
+// =======================================================
+// وكيل سريع لجيزي
+const djezzyAgent = new https.Agent({ 
+    family: 4, 
+    keepAlive: true,
+    rejectUnauthorized: false // تجاهل أخطاء الشهادات لزيادة القبول
+});
+
+// وكيل سريع لفيسبوك
+const fbAgent = new https.Agent({ family: 4, keepAlive: true });
 
 // =======================================================
 // 🔐 التشفير
@@ -89,18 +117,18 @@ const CLIENT_SECRET = "MVpXHW_ImuMsxKIwrJpoVVMHjRsa";
 const DATA_FILE = "messenger_sessions.json";
 
 // =======================================================
-// 🧠 Djezzy API Client (معدل للعمل مع البروكسي)
+// 🧠 Djezzy API Client (مع التمويه)
 // =======================================================
 class DjezzyClient {
     constructor(userData = null) {
-        // 🔥 استخدام البروكسي للتحايل على حظر الموقع
-        this.baseURL = DJEZZY_PROXY_URL; 
+        this.baseURL = 'https://apim.djezzy.dz'; 
+        // دمج الهيدرز الأصلية مع هيدرز التمويه
+        this.headers = { ...SPOOF_HEADERS }; 
         
-        this.headers = { 'User-Agent': 'Djezzy/2.7.0', 'Accept': 'application/json' };
         this.accessToken = userData ? userData.token : null;
         this.cookies = userData && userData.cookies ? userData.cookies : {};
         
-        this.axios = axios.create({ baseURL: this.baseURL, timeout: 25000, headers: this.headers, validateStatus: () => true, httpsAgent: renderAgent });
+        this.axios = axios.create({ baseURL: this.baseURL, timeout: 25000, headers: this.headers, validateStatus: () => true, httpsAgent: djezzyAgent });
         
         this.axios.interceptors.request.use(config => {
             if (Object.keys(this.cookies).length > 0) config.headers['Cookie'] = Object.entries(this.cookies).map(([k, v]) => `${k}=${v}`).join('; ');
@@ -238,9 +266,17 @@ class DjezzyClient {
             }
         } catch(e) { innerMsg = String(res.data.message || "").toLowerCase(); }
 
-        if (innerStatus === "401" || innerStatus === "403" || innerMsg.includes("unauthorized product") || innerMsg.includes("unauthorized subscription")) return "⏳ عذراً، لم يمر أسبوع بعد.\nيجب الانتظار حتى انتهاء المدة المحددة لتفعيل الهدية مجدداً.";
-        if (res.status === 402 || innerStatus === "402" || innerMsg.includes("not enough") || innerMsg.includes("balance")) return "⚠️ غير مؤهل للحصول على الهدية.\nيجب عليك استهلاك 100 دج إنترنت على الأقل لتفعيل الهدية.";
-        if ([200, 201].includes(res.status)) return "🎉 مبروك! تم تفعيل هدية المشي (2 GB) بنجاح.";
+        if (res.status === 403 || innerStatus === "403" || innerStatus === "401" || innerMsg.includes("unauthorized subscription") || innerMsg.includes("unauthorized product")) {
+            return "⏳ عذراً، لم يمر أسبوع بعد.\nيجب الانتظار حتى انتهاء المدة المحددة لتفعيل الهدية مجدداً.";
+        }
+
+        if (res.status === 402 || innerStatus === "402" || innerMsg.includes("not enough") || innerMsg.includes("balance")) {
+             return "⚠️ غير مؤهل للحصول على الهدية.\nيجب عليك استهلاك 100 دج إنترنت على الأقل لتفعيل الهدية.";
+        }
+
+        if ([200, 201].includes(res.status)) {
+            return "🎉 مبروك! تم تفعيل هدية المشي (2 GB) بنجاح.";
+        }
 
         return "❌ فشلت العملية. يرجى المحاولة لاحقاً.";
     }
@@ -252,7 +288,7 @@ class DjezzyClient {
 const app = express();
 app.use(bodyParser.json());
 
-// إنشاء ملف الجلسات (ملاحظة: في راندر هذا الملف يمحى عند إعادة التشغيل)
+// ملف وهمي لضمان العمل على Render
 if (!fs.existsSync(DATA_FILE)) { fs.writeFileSync(DATA_FILE, JSON.stringify({})); }
 
 function loadData() { try { return JSON.parse(fs.readFileSync(DATA_FILE)); } catch (e) { return {}; } }
@@ -281,12 +317,13 @@ app.post('/webhook', (req, res) => {
     } else res.sendStatus(404);
 });
 
+// استخدام الـ Agent في ردود فيسبوك لتسريع الاتصال
 async function sendTypingOn(sender_psid) {
     try { 
         await axios.post(
             `https://graph.facebook.com/v12.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, 
             { "recipient": { "id": sender_psid }, "sender_action": "typing_on" },
-            { httpsAgent: renderAgent } // استخدام الوكيل
+            { httpsAgent: fbAgent }
         ); 
     } catch(e) {}
 }
@@ -296,7 +333,7 @@ async function callSendAPI(sender_psid, response) {
         await axios.post(
             `https://graph.facebook.com/v12.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, 
             { "recipient": { "id": sender_psid }, "message": response },
-            { httpsAgent: renderAgent } // استخدام الوكيل
+            { httpsAgent: fbAgent }
         ); 
     } catch (e) { console.error("Send Error:", e.response ? e.response.data : e.message); }
 }
